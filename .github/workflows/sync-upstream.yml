@@ -1,0 +1,54 @@
+name: Sync Fork with Upstream
+
+on:
+  # schedule:
+    # Run daily at 2 AM UTC
+    # - cron: '0 2 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/anomalyco/opencode.git || true
+          git remote -v
+
+      - name: Sync dev branch
+        run: |
+          git fetch upstream dev:refs/remotes/upstream/dev
+          git checkout dev
+          
+          # Check if we're behind upstream
+          LOCAL=$(git rev-parse @)
+          REMOTE=$(git rev-parse upstream/dev)
+          BASE=$(git merge-base @ upstream/dev)
+          
+          if [ "$LOCAL" = "$REMOTE" ]; then
+            echo "✓ Already up to date"
+          elif [ "$LOCAL" = "$BASE" ]; then
+            echo "✓ Fast-forwarding..."
+            git merge --ff-only upstream/dev
+            git push origin dev
+          else
+            echo "⚠️ Fork has diverged - rebasing fork-specific commits..."
+            git log --oneline upstream/dev..HEAD
+            
+            # Rebase our fork-specific commits on top of upstream
+            git rebase upstream/dev
+            git push origin dev --force-with-lease
+            
+            echo "✓ Successfully rebased and synced"
+          fi
